@@ -7,8 +7,8 @@
 ╚═╝  ╚═╝ ╚═╝ ╚══════╝╚══════╝ ╚═╝ ╚═╝         ╚══════╝ ╚═╝ ╚══════╝╚══════╝ ╚═╝  ╚═══╝  ╚═════╝ ╚══════╝
 </pre>
 
-<p align="center"><strong>A tiny Spotify terminal for long coding-agent nights.</strong></p>
-<p align="center"><em>Let the agent cook. Let the terminal sing. ♪</em></p>
+<p align="center"><strong>Worried an agent will replace your job? Let it code. You have a song to hear.</strong></p>
+<p align="center"><em>The agent cooks; you supervise the vibes. ♪</em></p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Rust-101018?style=flat-square&logo=rust&logoColor=35e5e5" alt="Rust">
@@ -17,11 +17,11 @@
   <img src="https://img.shields.io/badge/Ratatui-101018?style=flat-square&color=ff43cf" alt="Ratatui">
 </p>
 
-KILL//SILENCE is a cyan-and-magenta Spotify control surface for the quiet gaps between coding-agent turns. It keeps the playful terminal from the original local demo—colour album art, a dense vertical signal preset, slash commands, responsive agent panels—and replaces the local-file player with Spotify's library, search, queue, and Connect playback.
+KILL//SILENCE is a cyan-and-magenta Spotify terminal for the most important part of agentic coding: the bit where the agent is typing and you are, very responsibly, listening to music. It keeps the playful terminal from the original local demo—colour album art, a dense vertical signal preset, slash commands, and responsive agent panels—while replacing local files with Spotify library, search, queue, and Connect playback.
 
-Its small trick is `/with-agents`: choose a real external Claude Code session, then keep working in that terminal as usual. When a turn starts, the soundtrack resumes. When Claude finishes, Spotify pauses and **THE AGENT'S WORK IS COMPLETE!!** blinks ten times, then stays lit in the panel.
+Its tiny trick is `/with-agents`: choose a real external Claude Code session, then go back to your actual terminal and let the little soundtrack assistant keep watch. When a turn starts, the music resumes. When Claude finishes, Spotify pauses and **THE AGENT'S WORK IS COMPLETE!!** blinks ten times, then stays lit in the panel—your cue to pretend you were watching the whole time.
 
-No embedded prompt box. No copied responses. No new AI workspace. Just a cheerful audio sidecar for the terminal you already use.
+No embedded prompt box. No copied responses. No new AI workspace. Just a cheerful audio sidecar for the terminal you already use while your replacement writes the boilerplate.
 
 <p align="center">
   <img src="./docs/screenshots/01-main.png" alt="KILL//SILENCE main terminal screen" width="100%">
