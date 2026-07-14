@@ -24,7 +24,7 @@ Its small trick is `/with-agents`: choose a real external Claude Code session, t
 No embedded prompt box. No copied responses. No new AI workspace. Just a cheerful audio sidecar for the terminal you already use.
 
 <p align="center">
-  <img src="./docs/screenshots/02-song-playing.png" alt="KILL//SILENCE playing beside Claude Code" width="100%">
+  <img src="./docs/screenshots/01-main.png" alt="KILL//SILENCE main terminal screen" width="100%">
 </p>
 
 ## What survived the rebuild
@@ -85,21 +85,25 @@ KILL//SILENCE controls Spotify Desktop or another Connect player rather than cre
 
 Start typing `/` to open the indexed command list. Use `↑` / `↓` to choose a suggestion, `Tab` or `→` to complete it, and `Enter` to run it. `F1` jumps to the title screen and `F2` returns to the player without changing playback. Modal lists additionally support `j` / `k`; `Esc` closes or clears, and `Ctrl-C` exits.
 
-## Five little states
+## Seven little states
 
-| 01 · ready | 02 · music |
+| 01 · main signal | 02 · choose a player signal |
 |---|---|
-| ![Command link ready](./docs/screenshots/01-command-link-ready.png) | ![A song playing](./docs/screenshots/02-song-playing.png) |
+| ![KILL//SILENCE main screen](./docs/screenshots/01-main.png) | ![Spotify player archive](./docs/screenshots/02-player.png) |
 
-| 03 · pick a session | 04 · agent working |
+| 03 · player beside Claude | 04 · home, with Claude next door |
 |---|---|
-| ![Claude session picker](./docs/screenshots/03-session-picker.png) | ![Claude turn active](./docs/screenshots/04-agent-working.png) |
+| ![Spotify player running beside Claude](./docs/screenshots/06-player-running.png) | ![KILL//SILENCE home beside Claude Code](./docs/screenshots/07-claude-home.png) |
 
-### 05 · the sound drops; your turn
+| 05 · pick a Claude session | 06 · agent working |
+|---|---|
+| ![Claude session picker](./docs/screenshots/05-claude-session-picker.png) | ![Claude turn active](./docs/screenshots/03-agent-working.png) |
 
-![Agent work complete](./docs/screenshots/05-agent-complete.png)
+### 07 · the sound drops; your turn
 
-The screenshots preserve the original local prototype's visual language. This fork rebuilds the same experience on Spotify's backend.
+![Agent work complete](./docs/screenshots/04-agent-complete.png)
+
+The screenshots show the Spotify rebuild itself: from the standalone home signal to the player, Claude session binding, active work, and the moment the soundtrack drops to tell you the turn is yours again.
 
 ## How `/with-agents` works
 
