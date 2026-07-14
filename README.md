@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="./docs/kill-silence-title.svg" alt="KILL//SILENCE" width="100%">
-</p>
+<h1 align="center">KILL//SILENCE</h1>
 
 <p align="center"><strong>에이전트가 내 직업을 대체할까 걱정되나요? 좋습니다. 그동안 에이전트가 코드를 쓰게 두고 우리는 노래나 듣죠.</strong></p>
 <p align="center"><em>The agent cooks; you supervise the vibes. ♪</em></p>
