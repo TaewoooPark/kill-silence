@@ -1,12 +1,12 @@
 [package]
-name = "spotify_player"
-version = "0.24.0"
-authors = ["Thang Pham <phamducthang1234@gmail.com>"]
+name = "kill-silence"
+version = "0.3.0"
+authors = ["Taewoo Park", "spotify-player contributors"]
 edition = "2021"
 license = "MIT"
-description = "A Spotify player in the terminal with full feature parity"
-repository = "https://github.com/aome510/spotify-player"
-keywords = ["spotify", "tui", "ratatui", "player"]
+description = "A retro-futuristic Spotify terminal for coding-agent sessions"
+repository = "https://github.com/TaewoooPark/kill-silence"
+keywords = ["spotify", "tui", "ratatui", "agents"]
 readme = "../README.md"
 
 [dependencies]
@@ -100,7 +100,10 @@ notify = ["notify-rust"]
 daemon = ["daemonize", "streaming"]
 fzf = ["fuzzy-matcher"]
 
-default = ["rodio-backend", "media-control"]
+# KILL//SILENCE controls an external Spotify Connect device through the Web API. Integrated
+# librespot audio is still available as an explicit feature, but keeping it out of the default
+# build prevents a second OAuth flow and avoids shipping an unused audio backend.
+default = ["image"]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ archive-suffix }"

@@ -49,16 +49,13 @@ impl Spotify {
         }
     }
 
+    #[cfg(feature = "streaming")]
     pub async fn set_session(&self, session: Session) {
         *self.session.lock().await = Some(session);
     }
 
-    pub async fn session(&self) -> Session {
-        self.session
-            .lock()
-            .await
-            .clone()
-            .expect("non-empty Spotify session")
+    pub async fn session(&self) -> Option<Session> {
+        self.session.lock().await.clone()
     }
 }
 
@@ -84,8 +81,12 @@ impl BaseClient for Spotify {
     }
 
     async fn refetch_token(&self) -> ClientResult<Option<Token>> {
-        let session = self.session().await;
         let old_token = self.token.lock().await.unwrap().clone();
+        let Some(session) = self.session().await else {
+            // Web API-only mode refreshes its token through `AuthCodePkceSpotify`; this legacy
+            // librespot-backed client has nothing to refresh when no integrated session exists.
+            return Ok(old_token);
+        };
 
         if session.is_invalid() {
             tracing::error!("Failed to get a new token: invalid session");

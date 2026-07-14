@@ -2,18 +2,17 @@ use std::collections::HashSet;
 use std::ops::Deref;
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
+#[cfg(feature = "streaming")]
+use crate::auth::AuthConfig;
 use crate::state::Lyrics;
-use crate::{auth, config};
-use crate::{
-    auth::AuthConfig,
-    state::{
-        store_data_into_file_cache, Album, AlbumId, Artist, ArtistId, Category, Context, ContextId,
-        Device, FileCacheKey, Item, ItemId, MemoryCaches, Playback, PlaybackMetadata, Playlist,
-        PlaylistFolderItem, PlaylistId, SearchResults, SharedState, Show, ShowId, Track, TrackId,
-        UserId, TTL_CACHE_DURATION, USER_LIKED_TRACKS_URI, USER_RECENTLY_PLAYED_TRACKS_URI,
-        USER_TOP_TRACKS_URI,
-    },
+use crate::state::{
+    store_data_into_file_cache, Album, AlbumId, Artist, ArtistId, Category, Context, ContextId,
+    Device, FileCacheKey, Item, ItemId, MemoryCaches, Playback, PlaybackMetadata, Playlist,
+    PlaylistFolderItem, PlaylistId, SearchResults, SharedState, Show, ShowId, Track, TrackId,
+    UserId, TTL_CACHE_DURATION, USER_LIKED_TRACKS_URI, USER_RECENTLY_PLAYED_TRACKS_URI,
+    USER_TOP_TRACKS_URI,
 };
+use crate::{auth, config};
 
 use std::io::Write;
 
@@ -41,12 +40,20 @@ const PLAYBACK_TYPES: [&rspotify::model::AdditionalType; 2] = [
     &rspotify::model::AdditionalType::Episode,
 ];
 
+fn bundled_web_api_credentials() -> rspotify::Credentials {
+    rspotify::Credentials {
+        id: auth::NCSPOT_CLIENT_ID.to_string(),
+        secret: None,
+    }
+}
+
 /// The application's Spotify client
 #[derive(Clone)]
 pub struct AppClient {
     http: reqwest::Client,
     /// The integrated Spotify client, mainly used for streaming and librespot integration
     spotify: Arc<spotify::Spotify>,
+    #[cfg(feature = "streaming")]
     auth_config: AuthConfig,
     /// The Spotify Web API client, used for interacting with Spotify Web APIs
     api_client: rspotify::AuthCodePkceSpotify,
@@ -61,31 +68,16 @@ impl Deref for AppClient {
     }
 }
 
-/// Build the Spotify Web API client from the configured client ID.
+/// Build the Spotify Web API client using KILL//SILENCE's bundled client ID.
 ///
 /// The returned client is unauthenticated; call [`auth::prompt_for_user_token`] to obtain an
-/// access token.
-pub fn new_api_client() -> Result<rspotify::AuthCodePkceSpotify> {
+/// access token. Deliberately do not read `client_id` from user configuration here: the bundled
+/// ncspot client is already registered for the loopback redirect and has extended quota access,
+/// so users do not need to create an application in Spotify's Developer Dashboard.
+pub fn new_api_client() -> rspotify::AuthCodePkceSpotify {
     let configs = config::get_config();
 
-    let id = configs.app_config.get_client_id()?;
-    // The bundled default (ncspot's client ID) is registered with extended quota mode and
-    // predates Spotify's 2024 Web API changes, so it is far less likely to hit rate limits
-    // than a freshly-registered client. Warn users who override it that they may run into
-    // `429 Too Many Requests` / `403 Forbidden` errors.
-    //
-    // See https://github.com/aome510/spotify-player/issues/890 for details.
-    if id != auth::NCSPOT_CLIENT_ID {
-        tracing::warn!(
-            "A custom `client_id` ({id}) is configured. Newly-registered Spotify clients \
-             use the restricted default quota mode and may hit rate-limit (429) or \
-             forbidden (403) errors. Unless you specifically need your own client, \
-             consider removing `client_id`/`client_id_command` to use the bundled default. \
-             See https://github.com/aome510/spotify-player/issues/890 for details."
-        );
-    }
-
-    let creds = rspotify::Credentials { id, secret: None };
+    let creds = bundled_web_api_credentials();
     let mut scopes = auth::OAUTH_SCOPES
         .iter()
         .map(ToString::to_string)
@@ -102,18 +94,13 @@ pub fn new_api_client() -> Result<rspotify::AuthCodePkceSpotify> {
         cache_path: configs.cache_folder.join("user_client_token.json"),
         ..Default::default()
     };
-    Ok(rspotify::AuthCodePkceSpotify::with_config(
-        creds, oauth, config,
-    ))
+    rspotify::AuthCodePkceSpotify::with_config(creds, oauth, config)
 }
 
 impl AppClient {
     /// Construct a new client
     pub async fn new() -> Result<Self> {
-        let configs = config::get_config();
-        let auth_config = AuthConfig::new(configs)?;
-
-        let mut api_client = new_api_client()?;
+        let mut api_client = new_api_client();
         auth::prompt_for_user_token(&mut api_client, false)
             .await
             .context("authenticate Spotify Web API client")?;
@@ -121,7 +108,8 @@ impl AppClient {
         Ok(Self {
             spotify: Arc::new(spotify::Spotify::new()),
             http: reqwest::Client::new(),
-            auth_config,
+            #[cfg(feature = "streaming")]
+            auth_config: AuthConfig::new(config::get_config())?,
             api_client,
 
             #[cfg(feature = "streaming")]
@@ -206,44 +194,51 @@ impl AppClient {
     }
 
     /// Create a new client session
+    #[allow(clippy::unused_async)] // awaits only when the opt-in `streaming` feature is compiled
     pub async fn new_session(&self, state: Option<&SharedState>, reauth: bool) -> Result<()> {
+        // KILL//SILENCE controls an existing Spotify Connect device through the Web API. In that
+        // mode the Web API token obtained in `new` is the only credential we need. Upstream
+        // spotify-player used to create a librespot session even when integrated streaming was
+        // disabled, which caused a second browser OAuth prompt.
+        #[cfg(feature = "streaming")]
+        if let Some(streaming_state) = state.filter(|state| state.is_streaming_enabled()) {
+            return self.new_integrated_session(streaming_state, reauth).await;
+        }
+
+        let _ = reauth;
+        tracing::info!("Using Web API-only Spotify Connect mode (no librespot session).");
+
+        if let Some(state) = state {
+            state.data.write().caches = MemoryCaches::new();
+            self.initialize_playback(state, false);
+        }
+
+        Ok(())
+    }
+
+    /// Create the optional integrated librespot session when the streaming feature is explicitly
+    /// compiled and enabled. This path intentionally remains opt-in because it needs a separate
+    /// Spotify credential and therefore another OAuth approval.
+    #[cfg(feature = "streaming")]
+    async fn new_integrated_session(&self, state: &SharedState, reauth: bool) -> Result<()> {
         // Capture whether playback was active *before* tearing down any existing streaming
         // connection. Shutting down the old `librespot` spirc pauses playback Spotify-side
         // (and a broken session leaves it paused too), so we use this to resume on the new
         // device rather than reconnecting in a paused state.
-        let was_playing = state.is_some_and(|state| {
-            state
-                .player
-                .read()
-                .buffered_playback
-                .as_ref()
-                .is_some_and(|p| p.is_playing)
-        });
+        let was_playing = state
+            .player
+            .read()
+            .buffered_playback
+            .as_ref()
+            .is_some_and(|p| p.is_playing);
 
         let session = self.auth_config.session();
         let creds = auth::get_creds(&self.auth_config, reauth, true).context("get credentials")?;
         self.spotify.set_session(session.clone()).await;
 
-        #[allow(unused_mut)]
-        let mut connected = false;
-
-        #[cfg(feature = "streaming")]
-        if let Some(state) = state {
-            if state.is_streaming_enabled() {
-                self.new_streaming_connection(state.clone(), session.clone(), creds.clone())
-                    .await
-                    .context("new streaming connection")?;
-                connected = true;
-            }
-        }
-
-        if !connected {
-            // if session is not connected (triggered by `new_streaming_connection`), connect to the session
-            session
-                .connect(creds, true)
-                .await
-                .context("connect to a session")?;
-        }
+        self.new_streaming_connection(state.clone(), session, creds)
+            .await
+            .context("new streaming connection")?;
 
         tracing::info!("Used a new session for Spotify client.");
 
@@ -251,18 +246,20 @@ impl AppClient {
             tracing::warn!("Failed to refresh auth token after creating a new session: {err:#}");
         }
 
-        if let Some(state) = state {
-            // reset the application's caches
-            state.data.write().caches = MemoryCaches::new();
-            self.initialize_playback(state, was_playing);
-        }
+        state.data.write().caches = MemoryCaches::new();
+        self.initialize_playback(state, was_playing);
 
         Ok(())
     }
 
     /// Check if the current session is valid and if invalid, create a new session
     pub async fn check_valid_session(&self, state: &SharedState) -> Result<()> {
-        if self.spotify.session().await.is_invalid() {
+        if self
+            .spotify
+            .session()
+            .await
+            .is_some_and(|session| session.is_invalid())
+        {
             tracing::info!("Client's current session is invalid, creating a new session...");
             self.new_session(Some(state), false)
                 .await
@@ -332,6 +329,11 @@ impl AppClient {
                 }
                 let device_id = playback.as_ref().and_then(|p| p.device_id.as_deref());
                 self.start_playback(p, device_id).await?;
+                // KILL//SILENCE treats a selected Spotify list as the soundtrack for a coding
+                // session: tracks advance normally, then the context starts again instead of
+                // falling silent. Context repeat preserves that behavior without looping one song.
+                self.repeat(rspotify::model::RepeatState::Context, device_id)
+                    .await?;
                 // For some reasons, when starting a new playback, the integrated `spotify_player`
                 // client doesn't respect the initial shuffle state, so we need to manually update the state
                 if let Some(ref playback) = playback {
@@ -687,7 +689,9 @@ impl AppClient {
 
     /// Get lyrics of a given track, return None if no lyrics is available
     pub async fn lyrics(&self, track_id: TrackId<'static>) -> Result<Option<Lyrics>> {
-        let session = self.spotify.session().await;
+        let session = self.spotify.session().await.context(
+            "lyrics require the optional integrated streaming session; unavailable in Spotify Connect mode",
+        )?;
         let uri = SpotifyUri::from_uri(&track_id.uri())?;
         match uri {
             SpotifyUri::Track { id } => {
@@ -824,7 +828,9 @@ impl AppClient {
     ///    access to user's active devices.
     #[cfg(feature = "streaming")]
     async fn ensure_integrated_device(&self, devices: &mut Vec<Device>) {
-        let session = self.spotify.session().await;
+        let Some(session) = self.spotify.session().await else {
+            return;
+        };
         let session_device_id = session.device_id().to_string();
 
         // Mark the integrated device if it's already in the list; otherwise, add it, so it's
@@ -1016,7 +1022,9 @@ impl AppClient {
             tracks: Vec<TrackData>,
         }
 
-        let session = self.spotify.session().await;
+        let session = self.spotify.session().await.context(
+            "radio generation requires the optional integrated streaming session; unavailable in Spotify Connect mode",
+        )?;
 
         // Get an autoplay URI from the seed URI.
         // The return URI is a Spotify station's URI
@@ -2035,7 +2043,8 @@ fn move_seed_track_to_front(tracks: &mut Vec<Track>, seed_track: Track) {
 
 #[cfg(test)]
 mod tests {
-    use super::move_seed_track_to_front;
+    use super::{bundled_web_api_credentials, move_seed_track_to_front};
+    use crate::auth::NCSPOT_CLIENT_ID;
     use crate::state::Track;
     use rspotify::model::TrackId;
 
@@ -2076,5 +2085,13 @@ mod tests {
         assert_eq!(tracks.len(), 2);
         assert_eq!(tracks[0].id, seed.id);
         assert_eq!(tracks[1].id, second.id);
+    }
+
+    #[test]
+    fn web_api_auth_uses_bundled_extended_quota_client_without_secret() {
+        let credentials = bundled_web_api_credentials();
+
+        assert_eq!(credentials.id, NCSPOT_CLIENT_ID);
+        assert!(credentials.secret.is_none());
     }
 }

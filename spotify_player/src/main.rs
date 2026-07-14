@@ -1,3 +1,9 @@
+// The fork intentionally keeps spotify-player's mature CLI/configuration surface available while
+// KILL//SILENCE replaces its interactive page renderer. Those retained upstream paths are not all
+// reached by the custom TUI, but remain useful for CLI subcommands and future ports.
+#![allow(dead_code)]
+
+pub mod agent_bridge;
 mod auth;
 mod cli;
 mod client;
@@ -5,6 +11,7 @@ mod command;
 mod config;
 mod event;
 mod key;
+mod kill_silence_command;
 mod log_layer;
 #[cfg(feature = "media-control")]
 mod media_control;
@@ -34,14 +41,14 @@ fn init_logging(
     }
 
     let log_prefix = format!(
-        "spotify-player-{}",
+        "kill-silence-{}",
         chrono::Local::now().format("%y-%m-%d-%H-%M")
     );
 
     // initialize the application's logging
     if std::env::var("RUST_LOG").is_err() {
         // default to log the current crate and librespot crates
-        std::env::set_var("RUST_LOG", "spotify_player=info,librespot=info");
+        std::env::set_var("RUST_LOG", "kill_silence=info,librespot=info");
     }
     if !log_folder.exists() {
         std::fs::create_dir_all(log_folder)?;
@@ -84,7 +91,7 @@ async fn start_app(state: &state::SharedState) -> Result<()> {
     {
         // set environment variables for PulseAudio
         if std::env::var("PULSE_PROP_application.name").is_err() {
-            std::env::set_var("PULSE_PROP_application.name", "spotify-player");
+            std::env::set_var("PULSE_PROP_application.name", "kill-silence");
         }
         if std::env::var("PULSE_PROP_application.icon_name").is_err() {
             std::env::set_var("PULSE_PROP_application.icon_name", "spotify");
@@ -154,38 +161,14 @@ async fn start_app(state: &state::SharedState) -> Result<()> {
         }
     });
 
-    // player event watcher task
-    std::thread::Builder::new()
-        .name("player-event-watcher".to_string())
-        .spawn({
-            let state = state.clone();
-            let client_pub = client_pub.clone();
-            move || {
-                client::start_player_event_watcher(&state, &client_pub);
-            }
-        })?;
-
     if !state.is_daemon {
         #[cfg(feature = "image")]
         ui::init_image_picker(state).context("initialize image picker")?;
         let terminal = ui::init_terminal().context("initialize terminal")?;
 
-        // terminal event handler task
-        std::thread::Builder::new()
-            .name("terminal-event-handler".to_string())
-            .spawn({
-                let client_pub = client_pub.clone();
-                let state = state.clone();
-                move || {
-                    event::start_event_handler(&state, &client_pub);
-                }
-            })?;
-
-        // application UI task
-        std::thread::Builder::new().name("ui".to_string()).spawn({
-            let state = state.clone();
-            move || ui::run(&state, terminal)
-        })?;
+        // KILL//SILENCE owns terminal input and rendering in one loop. Keeping both in the same
+        // loop prevents the upstream keymap handler from racing slash-command input.
+        return ui::kill_silence_app::run_kill_silence(state.clone(), client_pub, terminal);
     }
 
     #[cfg(feature = "media-control")]

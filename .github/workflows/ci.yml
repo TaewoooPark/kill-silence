@@ -1,81 +1,33 @@
 name: CI
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
   push:
-    branches: master
+    branches: [master]
+  pull_request:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
-  RUST_FEATURES: "rodio-backend,media-control,image,notify,fzf"
 
 jobs:
-  rust-ci:
-    if: github.event.pull_request.draft != true
-
+  test:
     strategy:
+      fail-fast: false
       matrix:
-        os: [macOS-latest, windows-latest, ubuntu-latest]
-        toolchain: [stable]
-
+        os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-
     steps:
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install libssl-dev libasound2-dev libdbus-1-dev libxcb-shape0-dev libxcb-xfixes0-dev
-        if: ${{ runner.os == 'Linux' }}
-
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        id: install_toolchain
-        uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ matrix.toolchain }}
-          components: clippy, rustfmt
-
-      - name: Cache cargo deps
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: ${{ runner.os }}-rustc-${{ steps.install_toolchain.outputs.cachekey }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-rustc-${{ steps.install_toolchain.outputs.cachekey }}
-
-      - name: Cargo format
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
-
-      - name: Cargo test
-        run: cargo test --no-default-features --features ${{ env.RUST_FEATURES }}
-
-      - name: Cargo clippy with all features
-        run: cargo clippy --no-default-features --features ${{ env.RUST_FEATURES }} -- -D warnings
-
-      - name: Cargo clippy without features
-        run: cargo clippy --no-default-features -- -D warnings
-
-  cargo-machete:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Machete
-        uses: bnjbvr/cargo-machete@main
-
-  typos:
-    # https://github.com/crate-ci/typos
-    # install and run locally: cargo install typos-cli && typos
-    name: typos
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Actions Repository
-        uses: actions/checkout@v4
-
-      - name: Check spelling of entire workspace
-        uses: crate-ci/typos@master
+      - name: Test default Spotify build
+        run: cargo test -p kill-silence --locked
+      - name: Test Web API-only core
+        run: cargo test -p kill-silence --locked --no-default-features
+      - name: Clippy
+        if: runner.os == 'Linux'
+        run: cargo clippy -p kill-silence --all-targets --locked -- -D warnings

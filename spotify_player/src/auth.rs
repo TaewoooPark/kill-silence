@@ -3,18 +3,25 @@ use std::{
     net::{SocketAddr, TcpListener, TcpStream},
 };
 
+#[cfg(feature = "streaming")]
 use crate::config;
 use anyhow::{Context as _, Result};
+#[cfg(feature = "streaming")]
 use base64::Engine as _;
+#[cfg(feature = "streaming")]
 use librespot_core::{authentication::Credentials, cache::Cache, Session};
 use reqwest::Url;
 use rspotify::clients::{BaseClient as _, OAuthClient as _};
+#[cfg(feature = "streaming")]
 use sha2::{Digest as _, Sha256};
 
+#[cfg(feature = "streaming")]
 pub const SPOTIFY_CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
 pub const NCSPOT_CLIENT_ID: &str = "d420a117a32841c2b3474932e49fb54b";
 
+#[cfg(feature = "streaming")]
 const SPOTIFY_AUTHORIZE_URL: &str = "https://accounts.spotify.com/authorize";
+#[cfg(feature = "streaming")]
 const SPOTIFY_TOKEN_URL: &str = "https://accounts.spotify.com/api/token";
 
 // based on https://developer.spotify.com/documentation/web-api/concepts/scopes#list-of-scopes
@@ -46,11 +53,13 @@ pub const OAUTH_SCOPES: &[&str] = &[
 ];
 
 #[derive(Clone)]
+#[cfg(feature = "streaming")]
 pub struct AuthConfig {
     pub cache: Cache,
     pub login_redirect_uri: String,
 }
 
+#[cfg(feature = "streaming")]
 impl Default for AuthConfig {
     fn default() -> Self {
         AuthConfig {
@@ -60,6 +69,7 @@ impl Default for AuthConfig {
     }
 }
 
+#[cfg(feature = "streaming")]
 impl AuthConfig {
     /// Create a `librespot::Session` from authentication configs
     pub fn session(&self) -> Session {
@@ -94,6 +104,7 @@ impl AuthConfig {
 /// - `auth_config`: authentication configuration
 /// - `reauth`: whether to re-authenticate the application if no cached credentials are found
 // - `use_cached`: whether to use cached credentials if available
+#[cfg(feature = "streaming")]
 pub fn get_creds(auth_config: &AuthConfig, reauth: bool, use_cached: bool) -> Result<Credentials> {
     let creds = if use_cached {
         auth_config.cache.credentials()
@@ -124,7 +135,7 @@ pub fn get_creds(auth_config: &AuthConfig, reauth: bool, use_cached: bool) -> Re
     })
 }
 
-/// Authenticate the user-provided (Web API) client using the authorization code with PKCE flow.
+/// Authenticate KILL//SILENCE's bundled Web API client using authorization code + PKCE.
 ///
 /// This mirrors `rspotify`'s `prompt_for_token` (reusing/refreshing a cached token when possible),
 /// but replaces its callback listener with [`obtain_auth_code`], which is robust against stray
@@ -146,17 +157,28 @@ pub async fn prompt_for_user_token(
                 return Ok(());
             }
 
-            if let Some(refreshed) = client
-                .refetch_token()
-                .await
-                .context("refresh expired token from cache")?
-            {
-                *client.get_token().lock().await.unwrap() = Some(refreshed);
-                client
-                    .write_token_cache()
-                    .await
-                    .context("write refreshed token to cache")?;
-                return Ok(());
+            match client.refetch_token().await {
+                Ok(Some(refreshed)) => {
+                    *client.get_token().lock().await.unwrap() = Some(refreshed);
+                    client
+                        .write_token_cache()
+                        .await
+                        .context("write refreshed token to cache")?;
+                    return Ok(());
+                }
+                Ok(None) => {
+                    tracing::warn!(
+                        "Cached Spotify token could not be refreshed; starting browser login."
+                    );
+                }
+                Err(err) => {
+                    // Tokens created by older KILL//SILENCE builds may belong to another client
+                    // ID. Do not strand the user on that stale cache: fall back to the same
+                    // first-run browser approval used when no token exists.
+                    tracing::warn!(
+                        "Failed to refresh cached Spotify token ({err:#}); starting browser login."
+                    );
+                }
             }
         }
     }
@@ -165,17 +187,18 @@ pub async fn prompt_for_user_token(
     // `get_authorize_url` also generates and stores the PKCE verifier used by `request_token`.
     let url = client
         .get_authorize_url(None)
-        .context("get authorize URL for user-provided client")?;
+        .context("get authorize URL for bundled Spotify client")?;
     let code = obtain_auth_code(&url, &client.get_oauth().redirect_uri)?;
     client
         .request_token(&code)
         .await
-        .context("exchange auth code for token (user-provided client)")?;
+        .context("exchange auth code for bundled Spotify client token")?;
 
     Ok(())
 }
 
 /// Run the authorization code with PKCE flow for `librespot` and return an access token.
+#[cfg(feature = "streaming")]
 fn get_oauth_access_token(client_id: &str, redirect_uri: &str, scopes: &[&str]) -> Result<String> {
     let pkce = Pkce::new_random();
     let state = random_url_safe(16);
@@ -287,6 +310,7 @@ fn redirect_socket_address(redirect_uri: &str) -> Option<SocketAddr> {
     url.socket_addrs(|| None).ok()?.into_iter().next()
 }
 
+#[cfg(feature = "streaming")]
 fn build_authorize_url(
     client_id: &str,
     redirect_uri: &str,
@@ -311,6 +335,7 @@ fn build_authorize_url(
 }
 
 /// Exchange an authorization code for an access token via Spotify's token endpoint.
+#[cfg(feature = "streaming")]
 fn exchange_code_for_token(
     client_id: &str,
     redirect_uri: &str,
@@ -352,11 +377,13 @@ fn exchange_code_for_token(
 }
 
 /// A PKCE code verifier/challenge pair (RFC 7636).
+#[cfg(feature = "streaming")]
 struct Pkce {
     verifier: String,
     challenge: String,
 }
 
+#[cfg(feature = "streaming")]
 impl Pkce {
     fn new_random() -> Self {
         let verifier = random_url_safe(32);
@@ -370,6 +397,7 @@ impl Pkce {
 }
 
 /// Generate a random URL-safe (base64url, no padding) string from `n` random bytes.
+#[cfg(feature = "streaming")]
 fn random_url_safe(n: usize) -> String {
     let mut bytes = vec![0u8; n];
     rand::fill(bytes.as_mut_slice());
@@ -413,6 +441,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "streaming")]
     fn pkce_challenge_matches_rfc7636_example() {
         // Verifier/challenge pair from RFC 7636, Appendix B.
         let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";

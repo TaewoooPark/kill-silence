@@ -1,15 +1,17 @@
 mod keymap;
 mod theme;
 
-const DEFAULT_CONFIG_FOLDER: &str = ".config/spotify-player";
-const DEFAULT_CACHE_FOLDER: &str = ".cache/spotify-player";
+const DEFAULT_CONFIG_FOLDER: &str = ".config/kill-silence";
+const DEFAULT_CACHE_FOLDER: &str = ".cache/kill-silence";
 const APP_CONFIG_FILE: &str = "app.toml";
 const THEME_CONFIG_FILE: &str = "theme.toml";
 const KEYMAP_CONFIG_FILE: &str = "keymap.toml";
 
 use anyhow::{anyhow, Result};
 use config_parser2::{config_parser_impl, ConfigParse, ConfigParser};
+#[cfg(feature = "streaming")]
 use librespot_core::config::SessionConfig;
+#[cfg(feature = "streaming")]
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -23,7 +25,9 @@ use theme::ThemeConfig;
 
 pub use theme::Theme;
 
-use crate::auth::{NCSPOT_CLIENT_ID, SPOTIFY_CLIENT_ID};
+use crate::auth::NCSPOT_CLIENT_ID;
+#[cfg(feature = "streaming")]
+use crate::auth::SPOTIFY_CLIENT_ID;
 
 static CONFIGS: OnceLock<Configs> = OnceLock::new();
 
@@ -185,6 +189,7 @@ pub struct Command {
 }
 
 impl Command {
+    #[cfg(feature = "streaming")]
     /// Execute a command, returning stdout if succeeded or stderr if failed
     pub fn execute(&self, extra_args: Option<Vec<String>>) -> anyhow::Result<String> {
         let mut args = self.args.clone();
@@ -371,7 +376,10 @@ impl Default for AppConfig {
             #[cfg(all(unix, not(target_os = "macos")))]
             enable_media_control: true,
 
-            enable_streaming: StreamingType::Always,
+            // KILL//SILENCE controls Spotify Desktop / Spotify Connect instead of registering an
+            // integrated librespot playback device. This keeps onboarding to one Web API OAuth
+            // approval and avoids two clients competing for playback.
+            enable_streaming: StreamingType::Never,
 
             #[cfg(feature = "streaming")]
             enable_audio_visualization: false,
@@ -393,7 +401,7 @@ impl Default for AppConfig {
             volume_scroll_step: 5,
             enable_mouse_scroll_volume: true,
 
-            custom_queue: true,
+            custom_queue: false,
 
             enable_relative_line_number: false,
 
@@ -406,7 +414,7 @@ impl Default for AppConfig {
 impl Default for DeviceConfig {
     fn default() -> Self {
         Self {
-            name: "spotify-player".to_string(),
+            name: "kill-silence".to_string(),
             device_type: "speaker".to_string(),
             volume: 70,
             bitrate: 320,
@@ -472,6 +480,7 @@ impl AppConfig {
             })
     }
 
+    #[cfg(feature = "streaming")]
     pub fn session_config(&self) -> SessionConfig {
         let proxy = self
             .proxy
@@ -489,14 +498,6 @@ impl AppConfig {
             client_id: SPOTIFY_CLIENT_ID.to_string(),
             autoplay: Some(self.device.autoplay),
             ..Default::default()
-        }
-    }
-
-    /// Returns stdout of `client_id_command` if set, otherwise the value of `client_id`.
-    pub fn get_client_id(&self) -> Result<String> {
-        match self.client_id_command {
-            Some(ref cmd) => cmd.execute(None).map(|out| out.trim().to_string()),
-            None => Ok(self.client_id.clone()),
         }
     }
 }
@@ -557,4 +558,19 @@ pub fn apply_config_override(config: &mut AppConfig, key: &str, value: &str) -> 
     *config = config_value.try_into()?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AppConfig, StreamingType};
+    use crate::auth::NCSPOT_CLIENT_ID;
+
+    #[test]
+    fn kill_silence_defaults_to_external_spotify_connect() {
+        let config = AppConfig::default();
+
+        assert_eq!(config.client_id, NCSPOT_CLIENT_ID);
+        assert_eq!(config.enable_streaming, StreamingType::Never);
+        assert!(!config.custom_queue);
+    }
 }

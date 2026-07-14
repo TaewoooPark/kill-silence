@@ -2765,6 +2765,61 @@ dependencies = [
 ]
 
 [[package]]
+name = "kill-silence"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "backtrace",
+ "base64",
+ "chrono",
+ "chrono-humanize",
+ "clap",
+ "clap_complete",
+ "clipboard-win",
+ "config_parser2",
+ "crossterm",
+ "daemonize",
+ "dirs-next",
+ "flume",
+ "futures",
+ "fuzzy-matcher",
+ "html-escape",
+ "image",
+ "librespot-connect",
+ "librespot-core",
+ "librespot-metadata",
+ "librespot-playback",
+ "log",
+ "maybe-async",
+ "notify-rust",
+ "open",
+ "parking_lot",
+ "rand 0.10.1",
+ "ratatui",
+ "ratatui-image",
+ "regex",
+ "reqwest 0.13.4",
+ "rspotify",
+ "rustfft",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "souvlaki",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "ttl_cache",
+ "unicode-bidi",
+ "vergen",
+ "which 8.0.4",
+ "windows 0.58.0",
+ "winit",
+]
+
+[[package]]
 name = "kstring"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5748,61 +5803,6 @@ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der",
-]
-
-[[package]]
-name = "spotify_player"
-version = "0.24.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "backtrace",
- "base64",
- "chrono",
- "chrono-humanize",
- "clap",
- "clap_complete",
- "clipboard-win",
- "config_parser2",
- "crossterm",
- "daemonize",
- "dirs-next",
- "flume",
- "futures",
- "fuzzy-matcher",
- "html-escape",
- "image",
- "librespot-connect",
- "librespot-core",
- "librespot-metadata",
- "librespot-playback",
- "log",
- "maybe-async",
- "notify-rust",
- "open",
- "parking_lot",
- "rand 0.10.1",
- "ratatui",
- "ratatui-image",
- "regex",
- "reqwest 0.13.4",
- "rspotify",
- "rustfft",
- "rustls",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "souvlaki",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
- "ttl_cache",
- "unicode-bidi",
- "vergen",
- "which 8.0.4",
- "windows 0.58.0",
- "winit",
 ]
 
 [[package]]

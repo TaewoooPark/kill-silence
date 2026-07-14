@@ -26,6 +26,8 @@ type Terminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::St
 
 #[cfg(feature = "image")]
 pub mod cover_image;
+pub mod kill_silence;
+pub(crate) mod kill_silence_app;
 mod page;
 mod playback;
 mod popup;
