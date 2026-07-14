@@ -2,7 +2,7 @@
 
 <p align="center"><strong>English</strong> · <a href="./README.ko.md">한국어</a></p>
 
-<p align="center"><strong>Worried that an agent might take your job? Great. Let it write the code while we listen to music.</strong></p>
+<p align="center"><strong>Worried that an agent might take your job? If I am going to be replaced and miserable anyway, I would rather just listen to music.</strong></p>
 <p align="center"><em>The agent cooks; you supervise the vibes. ♪</em></p>
 
 <p align="center">
@@ -14,9 +14,9 @@
 
 ## Why `kill-silence`?
 
-What are we supposed to do while an agent writes code? Read every log line with professional concentration? Of course not. We click in another prompt, stare into the middle distance, then switch terminals to open a music player. Even that terminal switch feels like unpaid labor.
+What are we supposed to do while an agent writes code? Read the logs with sincere attention? Probably not. At this rate, will agents take every job we have? And if they do, what exactly are we supposed to do?
 
-So **KILL//SILENCE** simply stays in the terminal. It controls Spotify, crushes album covers into terminal pixels, and streams a suspiciously convincing waveform. When Claude Code starts a real turn, the music plays. When the turn ends, the music stops. That is when we look up and return to work. It is less of a productivity tool and more of a very cute warning light for pretending to be productive.
+Honestly, I have no idea. I just want to listen to music. So I built **KILL//SILENCE**. Run `/with-agents` and it plays music while Claude Code works. When the music stops, enter another prompt. When Claude starts working again, the music comes back. Connect your Spotify account and discover agentic coding for people who cannot be bothered with anything.
 
 <p align="center">
   <img src="./docs/screenshots/01-main.png" alt="KILL//SILENCE main terminal screen" width="100%">
@@ -66,7 +66,7 @@ kill-silence authenticate
 #    That is our cue to resume having a job
 ```
 
-Type `/` in the command console and an indexed command list appears underneath. Pick an entry with `↑` / `↓`, complete it with `Tab` or `→`, then press `Enter`. You can also type the whole command yourself if you miss manual labor.
+Type `/` in the command console and an indexed command list appears underneath. Pick an entry with `↑` / `↓`, complete it with `Tab` or `→`, then press `Enter`.
 
 ## Command dictionary
 
@@ -103,14 +103,12 @@ Type `/` in the command console and an indexed command list appears underneath. 
 
 ## `/with-agents`: a work notification made of music
 
-KILL//SILENCE does not create another AI chat, inject prompts into Claude, or copy responses into its own panel. It only watches an existing Claude Code session in read-only mode.
+Pop-ups and notification sounds are far too formal a way to hear that your agent is done. I would rather listen to music. When the music stops, I work only so I can make it play again.
 
 1. Run `/with-agents` and choose a session.
 2. Give Claude work in its real terminal as usual.
 3. Spotify starts when the turn starts.
 4. Spotify pauses and the completion signal appears when the turn completes or is interrupted.
-
-Click prompts in the left terminal. Watch album art in the right terminal. Prepare emotionally in whichever terminal has more cyan. Prompt and response bodies are never rendered or modified by KILL//SILENCE.
 
 ## Field recordings
 
