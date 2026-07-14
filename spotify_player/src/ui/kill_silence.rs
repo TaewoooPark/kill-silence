@@ -445,11 +445,10 @@ fn render_home_panel(frame: &mut Frame<'_>, area: Rect, model: &KillSilenceViewM
     .split(inner);
     render_header(frame, rows[0], model);
     let logo_slot = rows[1];
+    let rendered_logo_height = logo_height.min(logo_slot.height);
     let logo_area = Rect {
-        y: logo_slot
-            .bottom()
-            .saturating_sub(logo_height.min(logo_slot.height)),
-        height: logo_height.min(logo_slot.height),
+        y: logo_slot.y + logo_slot.height.saturating_sub(rendered_logo_height) / 2,
+        height: rendered_logo_height,
         ..logo_slot
     };
     frame.render_widget(
