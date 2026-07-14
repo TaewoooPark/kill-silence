@@ -31,7 +31,7 @@ No embedded prompt box. No copied responses. No new AI workspace. Just a cheerfu
 
 - Full-colour half-block album cover art with an ANSI-256 fallback for Terminal.app
 - A fixed, dense vertical waveform preset that scrolls with playback—decorative on purpose, not fake analysis
-- Indexed slash-command suggestions with arrow-key selection and Tab completion
+- A visually separated command console and indexed slash suggestions with arrow-key selection and Tab completion
 - `/home` and `/player` switch views without touching the active Spotify playback
 - `/song`, Spotify search, queue, like, playback, volume, and Connect-device commands
 - `/with-agents` read-only Claude Code session discovery and lifecycle tracking
@@ -83,7 +83,7 @@ KILL//SILENCE controls Spotify Desktop or another Connect player rather than cre
 | `/help` | Open the command archive |
 | `/quit` | Restore the terminal and exit |
 
-Start typing `/` to open the indexed command list. Use `↑` / `↓` to choose a suggestion, `Tab` or `→` to complete it, and `Enter` to run it. Modal lists additionally support `j` / `k`; `Esc` closes or clears, and `Ctrl-C` exits.
+Start typing `/` to open the indexed command list. Use `↑` / `↓` to choose a suggestion, `Tab` or `→` to complete it, and `Enter` to run it. `F1` jumps to the title screen and `F2` returns to the player without changing playback. Modal lists additionally support `j` / `k`; `Esc` closes or clears, and `Ctrl-C` exits.
 
 ## Five little states
 

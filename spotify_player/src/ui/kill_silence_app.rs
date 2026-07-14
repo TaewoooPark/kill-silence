@@ -76,6 +76,14 @@ enum KillSilenceScreen {
     Player,
 }
 
+fn screen_shortcut(code: KeyCode) -> Option<KillSilenceScreen> {
+    match code {
+        KeyCode::F(1) => Some(KillSilenceScreen::Home),
+        KeyCode::F(2) => Some(KillSilenceScreen::Player),
+        _ => None,
+    }
+}
+
 struct Runtime {
     state: SharedState,
     client: flume::Sender<ClientRequest>,
@@ -152,6 +160,10 @@ impl Runtime {
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.should_quit = true;
+            return;
+        }
+        if let Some(screen) = screen_shortcut(key.code) {
+            self.show_screen(screen);
             return;
         }
         if self.overlay_title.is_some() {
@@ -292,14 +304,8 @@ impl Runtime {
             ),
             KillSilenceCommand::Like => self.like_current(),
             KillSilenceCommand::WithAgents => self.load_agents(),
-            KillSilenceCommand::Home => {
-                self.screen = KillSilenceScreen::Home;
-                self.status = "TITLE SCREEN · SPOTIFY SIGNAL CONTINUES".into();
-            }
-            KillSilenceCommand::Player => {
-                self.screen = KillSilenceScreen::Player;
-                self.status = "NOW PLAYING SCREEN".into();
-            }
+            KillSilenceCommand::Home => self.show_screen(KillSilenceScreen::Home),
+            KillSilenceCommand::Player => self.show_screen(KillSilenceScreen::Player),
             KillSilenceCommand::Help => self.open_help(),
             KillSilenceCommand::Quit => self.should_quit = true,
         }
@@ -308,6 +314,16 @@ impl Runtime {
     fn player(&mut self, request: PlayerRequest, status: &str) {
         self.send(ClientRequest::Player(request));
         self.status = status.into();
+    }
+
+    fn show_screen(&mut self, screen: KillSilenceScreen) {
+        self.screen = screen;
+        self.close_overlay();
+        self.status = match screen {
+            KillSilenceScreen::Home => "TITLE SCREEN · SPOTIFY SIGNAL CONTINUES",
+            KillSilenceScreen::Player => "NOW PLAYING SCREEN",
+        }
+        .into();
     }
 
     fn open_library(&mut self) {
@@ -869,5 +885,18 @@ mod tests {
         });
         let label = entry.label();
         assert!(!label.contains("secret.jsonl"));
+    }
+
+    #[test]
+    fn function_keys_map_to_non_interrupting_screen_changes() {
+        assert_eq!(
+            screen_shortcut(KeyCode::F(1)),
+            Some(KillSilenceScreen::Home)
+        );
+        assert_eq!(
+            screen_shortcut(KeyCode::F(2)),
+            Some(KillSilenceScreen::Player)
+        );
+        assert_eq!(screen_shortcut(KeyCode::Char('p')), None);
     }
 }

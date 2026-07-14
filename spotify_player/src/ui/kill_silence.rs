@@ -14,7 +14,9 @@ use ratatui::{
     Frame,
 };
 
-const WIDE_LAYOUT_AT: u16 = 120;
+const WIDE_LAYOUT_AT: u16 = 145;
+const WIDE_LOGO_AT: u16 = 101;
+const STACKED_LOGO_AT: u16 = 64;
 const SIGNAL_MAX: u16 = 8;
 const AGENT_BLINK_HALF_PERIOD_MS: u64 = 300;
 const AGENT_BLINK_COUNT: u64 = 10;
@@ -26,6 +28,22 @@ const WIDE_LOGO: &[&str] = &[
     "██╔═██╗   ██║  ██║      ██║          ╚════██║  ██║  ██║      ██╔══╝    ██║╚██╗██║  ██║       ██╔══╝",
     "██║  ██╗  ██║  ███████╗ ███████╗     ███████║  ██║  ███████╗ ███████╗ ██║ ╚████║  ╚██████╗  ███████╗",
     "╚═╝  ╚═╝  ╚═╝  ╚══════╝ ╚══════╝     ╚══════╝  ╚═╝  ╚══════╝ ╚══════╝ ╚═╝  ╚═══╝   ╚═════╝  ╚══════╝",
+];
+
+const STACKED_LOGO: &[&str] = &[
+    "██╗  ██╗  ██╗  ██╗      ██╗",
+    "██║ ██╔╝  ██║  ██║      ██║",
+    "█████╔╝   ██║  ██║      ██║",
+    "██╔═██╗   ██║  ██║      ██║",
+    "██║  ██╗  ██║  ███████╗ ███████╗",
+    "╚═╝  ╚═╝  ╚═╝  ╚══════╝ ╚══════╝",
+    "                         //",
+    "███████╗  ██╗  ██╗      ███████╗  ███╗   ██╗  ██████╗  ███████╗",
+    "██╔════╝  ██║  ██║      ██╔════╝  ████╗  ██║  ██╔════╝  ██╔════╝",
+    "███████╗  ██║  ██║      █████╗    ██╔██╗ ██║  ██║       █████╗",
+    "╚════██║  ██║  ██║      ██╔══╝    ██║╚██╗██║  ██║       ██╔══╝",
+    "███████║  ██║  ███████╗ ███████╗ ██║ ╚████║  ╚██████╗  ███████╗",
+    "╚══════╝  ╚═╝  ╚══════╝ ╚══════╝ ╚═╝  ╚═══╝   ╚═════╝  ╚══════╝",
 ];
 
 const COMPACT_LOGO: &[&str] = &[
@@ -404,10 +422,19 @@ fn render_home_panel(frame: &mut Frame<'_>, area: Rect, model: &KillSilenceViewM
         .style(panel_style());
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let compact = inner.height < 22 || inner.width < 112;
+    let compact = inner.height < 24;
     let visible = if compact { 2 } else { 5 }.min(model.command_suggestions.len());
-    let command_height = 1 + visible as u16;
-    let logo_height = if compact { 3 } else { 6 };
+    let command_height = if visible == 0 { 1 } else { 2 + visible as u16 };
+    let fixed_height = 2 + 1 + 1 + command_height;
+    let logo_space = inner.height.saturating_sub(fixed_height);
+    let logo = if inner.width >= WIDE_LOGO_AT && logo_space >= WIDE_LOGO.len() as u16 {
+        WIDE_LOGO
+    } else if inner.width >= STACKED_LOGO_AT && logo_space >= STACKED_LOGO.len() as u16 {
+        STACKED_LOGO
+    } else {
+        COMPACT_LOGO
+    };
+    let logo_height = logo.len() as u16;
     let rows = Layout::vertical([
         Constraint::Length(2),
         Constraint::Min(logo_height),
@@ -417,10 +444,13 @@ fn render_home_panel(frame: &mut Frame<'_>, area: Rect, model: &KillSilenceViewM
     ])
     .split(inner);
     render_header(frame, rows[0], model);
-    let logo = if inner.width < 112 {
-        COMPACT_LOGO
-    } else {
-        WIDE_LOGO
+    let logo_slot = rows[1];
+    let logo_area = Rect {
+        y: logo_slot
+            .bottom()
+            .saturating_sub(logo_height.min(logo_slot.height)),
+        height: logo_height.min(logo_slot.height),
+        ..logo_slot
     };
     frame.render_widget(
         Paragraph::new(
@@ -430,7 +460,7 @@ fn render_home_panel(frame: &mut Frame<'_>, area: Rect, model: &KillSilenceViewM
         )
         .alignment(Alignment::Center)
         .style(panel_style()),
-        rows[1],
+        logo_area,
     );
     let pulse = if model.frame_tick % 8 < 4 {
         "● SIGNAL"
@@ -470,7 +500,7 @@ fn render_player(
     frame.render_widget(block, area);
     let compact = inner.height < 20;
     let visible = if compact { 2 } else { 5 }.min(model.command_suggestions.len());
-    let command_height = 1 + visible as u16;
+    let command_height = if visible == 0 { 1 } else { 2 + visible as u16 };
     let rows = Layout::vertical([
         Constraint::Length(2),
         Constraint::Length(if compact { 5 } else { 8 }),
@@ -693,19 +723,47 @@ fn render_command(
     visible_suggestions: usize,
 ) {
     let command = if model.command_line.is_empty() {
-        Cow::Borrowed("type /help")
+        Cow::Borrowed("type /help or press /")
     } else {
         Cow::Borrowed(model.command_line.as_str())
     };
-    let mut command_spans = vec![
-        Span::styled(" ks:// ", accent_style()),
-        Span::styled("█ ", Style::new().fg(CYAN)),
-        Span::styled(command, muted_style()),
+    let command_style = if model.command_line.is_empty() {
+        Style::new().fg(MUTED).bg(VOID)
+    } else {
+        Style::new().fg(TEXT).bg(VOID).add_modifier(Modifier::BOLD)
+    };
+    let command_spans = vec![
+        Span::styled(
+            " COMMAND// ",
+            Style::new()
+                .fg(MAGENTA)
+                .bg(VOID)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("█ ", Style::new().fg(CYAN).bg(VOID)),
+        Span::styled(command, command_style),
+        Span::styled("    F1 HOME · F2 PLAYER", Style::new().fg(MUTED).bg(VOID)),
     ];
-    if visible_suggestions > 0 {
-        command_spans.push(Span::styled("   ↑↓ INDEX · TAB COMPLETE", muted_style()));
+    let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
+    frame.render_widget(
+        Paragraph::new(Line::from(command_spans)).style(Style::new().fg(TEXT).bg(VOID)),
+        rows[0],
+    );
+    if visible_suggestions == 0 || rows[1].height < 2 {
+        return;
     }
-    let mut lines = vec![Line::from(command_spans)];
+
+    let index_block = Block::default()
+        .borders(Borders::TOP)
+        .title(Span::styled(
+            " INDEXED COMMANDS · ↑↓ SELECT · TAB COMPLETE ",
+            Style::new().fg(CYAN).bg(PANEL).add_modifier(Modifier::BOLD),
+        ))
+        .border_style(Style::new().fg(DIM))
+        .style(panel_style());
+    let index_inner = index_block.inner(rows[1]);
+    frame.render_widget(index_block, rows[1]);
+
     let selected = model
         .command_suggestion_selected
         .min(model.command_suggestions.len().saturating_sub(1));
@@ -714,40 +772,39 @@ fn render_command(
     } else {
         0
     };
-    lines.extend(
-        model
-            .command_suggestions
-            .iter()
-            .enumerate()
-            .skip(suggestion_start)
-            .take(visible_suggestions)
-            .map(|(index, suggestion)| {
-                let selected = index == model.command_suggestion_selected;
-                Line::from(vec![
-                    Span::styled(
-                        if selected { "   ▸ " } else { "     " },
-                        if selected {
-                            accent_style()
-                        } else {
-                            muted_style()
-                        },
-                    ),
-                    Span::styled(
-                        format!("{:<22}", suggestion.usage),
-                        if selected {
-                            Style::new()
-                                .fg(VOID)
-                                .bg(MAGENTA)
-                                .add_modifier(Modifier::BOLD)
-                        } else {
-                            Style::new().fg(CYAN).bg(PANEL)
-                        },
-                    ),
-                    Span::styled(format!("  {}", suggestion.description), muted_style()),
-                ])
-            }),
-    );
-    frame.render_widget(Paragraph::new(lines).style(panel_style()), area);
+    let lines = model
+        .command_suggestions
+        .iter()
+        .enumerate()
+        .skip(suggestion_start)
+        .take(visible_suggestions)
+        .map(|(index, suggestion)| {
+            let selected = index == model.command_suggestion_selected;
+            Line::from(vec![
+                Span::styled(
+                    format!(" {:02} {} ", index + 1, if selected { "▸" } else { " " }),
+                    if selected {
+                        accent_style()
+                    } else {
+                        muted_style()
+                    },
+                ),
+                Span::styled(
+                    format!("{:<22}", suggestion.usage),
+                    if selected {
+                        Style::new()
+                            .fg(VOID)
+                            .bg(MAGENTA)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::new().fg(CYAN).bg(PANEL)
+                    },
+                ),
+                Span::styled(format!("  {}", suggestion.description), muted_style()),
+            ])
+        })
+        .collect::<Vec<_>>();
+    frame.render_widget(Paragraph::new(lines).style(panel_style()), index_inner);
 }
 
 fn render_agent(frame: &mut Frame<'_>, area: Rect, model: &KillSilenceViewModel) {
@@ -1072,7 +1129,8 @@ mod tests {
         assert!(view.contains("LAST NIGHT ON EARTH"));
         assert!(view.contains("LIVE SIGNAL WAVEFORM"));
         assert!(view.contains("WITH-AGENTS//STANDBY"));
-        assert!(view.contains("ks://"));
+        assert!(view.contains("COMMAND//"));
+        assert!(view.contains("F1 HOME · F2 PLAYER"));
         assert!(
             terminal
                 .backend()
@@ -1181,7 +1239,39 @@ mod tests {
         assert!(view.contains("KILL//SILENCE"));
         assert!(view.contains("/play"));
         assert!(view.contains("/player"));
+        assert!(view.contains("INDEXED COMMANDS"));
+        assert!(view.contains("COMMAND//"));
         assert!(view.contains("WITH-AGENTS//STANDBY"));
+    }
+
+    #[test]
+    fn home_prefers_the_original_wide_logo_as_soon_as_it_fits() {
+        let backend = TestBackend::new(120, 28);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_kill_silence_home(frame, &playing_model()))
+            .unwrap();
+        let view = screen(terminal.backend().buffer());
+        assert!(view.contains(super::WIDE_LOGO[0]));
+        let (x, y) = find(terminal.backend().buffer(), "COMMAND//").unwrap();
+        assert_eq!(terminal.backend().buffer()[(x as u16, y)].bg, super::VOID);
+    }
+
+    #[test]
+    fn home_falls_back_from_stacked_to_compact_as_space_tightens() {
+        let backend = TestBackend::new(90, 36);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_kill_silence_home(frame, &playing_model()))
+            .unwrap();
+        assert!(screen(terminal.backend().buffer()).contains(super::STACKED_LOGO[7]));
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_kill_silence_home(frame, &playing_model()))
+            .unwrap();
+        assert!(screen(terminal.backend().buffer()).contains(super::COMPACT_LOGO[0]));
     }
 
     #[test]
