@@ -15,16 +15,16 @@ use crate::{
         AgentEvent, AgentProvider, AgentSession, AgentWatch, ClaudeProvider, SessionQuery,
     },
     client::{ClientRequest, PlayerRequest},
-    kill_silence_command::KillSilenceCommand,
+    kill_silence_command::{command_suggestions, KillSilenceCommand},
     state::{self, ContextId, Item, Playback, PlaylistFolderItem, SharedState},
 };
 
 use super::{
     clean_up,
     kill_silence::{
-        render_kill_silence, render_kill_silence_boot, ArtworkColorMode, KillSilenceAgent,
-        KillSilenceAgentStatus, KillSilenceOverlay, KillSilenceTrack, KillSilenceViewModel,
-        TerminalArtwork,
+        render_kill_silence, render_kill_silence_boot, render_kill_silence_home, ArtworkColorMode,
+        KillSilenceAgent, KillSilenceAgentStatus, KillSilenceCommandSuggestion, KillSilenceOverlay,
+        KillSilenceTrack, KillSilenceViewModel, TerminalArtwork,
     },
     Terminal,
 };
@@ -69,6 +69,13 @@ enum RuntimeEvent {
     },
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum KillSilenceScreen {
+    #[default]
+    Home,
+    Player,
+}
+
 struct Runtime {
     state: SharedState,
     client: flume::Sender<ClientRequest>,
@@ -79,7 +86,10 @@ struct Runtime {
     agent_session: Option<AgentSession>,
     agent_status: KillSilenceAgentStatus,
     agent_started: Option<Instant>,
+    agent_completed: Option<Instant>,
+    screen: KillSilenceScreen,
     command: String,
+    command_suggestion_selected: usize,
     status: String,
     entries: Vec<ListEntry>,
     overlay_title: Option<String>,
@@ -105,7 +115,10 @@ impl Runtime {
             agent_session: None,
             agent_status: KillSilenceAgentStatus::Disconnected,
             agent_started: None,
+            agent_completed: None,
+            screen: KillSilenceScreen::Home,
             command: String::new(),
+            command_suggestion_selected: 0,
             status: "COMMAND LINK READY".into(),
             entries: Vec::new(),
             overlay_title: None,
@@ -154,17 +167,30 @@ impl Runtime {
             return;
         }
         match key.code {
-            KeyCode::Esc => self.command.clear(),
+            KeyCode::Esc => {
+                self.command.clear();
+                self.command_suggestion_selected = 0;
+            }
             KeyCode::Backspace => {
                 self.command.pop();
+                self.command_suggestion_selected = 0;
+            }
+            KeyCode::Up if !self.suggestions().is_empty() => {
+                self.command_suggestion_selected =
+                    self.command_suggestion_selected.saturating_sub(1);
+            }
+            KeyCode::Down if !self.suggestions().is_empty() => {
+                self.command_suggestion_selected = (self.command_suggestion_selected + 1)
+                    .min(self.suggestions().len().saturating_sub(1));
+            }
+            KeyCode::Tab | KeyCode::Right if !self.suggestions().is_empty() => {
+                self.complete_suggestion(false);
             }
             KeyCode::Enter => {
-                let input = std::mem::take(&mut self.command);
-                if !input.trim().is_empty() {
-                    match input.parse::<KillSilenceCommand>() {
-                        Ok(command) => self.dispatch(command),
-                        Err(error) => self.status = error.to_string(),
-                    }
+                if self.should_accept_suggestion() {
+                    self.complete_suggestion(true);
+                } else {
+                    self.run_command();
                 }
             }
             KeyCode::Char(character)
@@ -173,8 +199,53 @@ impl Runtime {
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 self.command.push(character);
+                self.command_suggestion_selected = 0;
             }
             _ => {}
+        }
+    }
+
+    fn suggestions(&self) -> Vec<crate::kill_silence_command::KillSilenceCommandSpec> {
+        command_suggestions(&self.command)
+    }
+
+    fn should_accept_suggestion(&self) -> bool {
+        let suggestions = self.suggestions();
+        let Some(suggestion) = suggestions.get(
+            self.command_suggestion_selected
+                .min(suggestions.len().saturating_sub(1)),
+        ) else {
+            return false;
+        };
+        self.command.trim_end() != suggestion.completion.trim_end()
+    }
+
+    fn complete_suggestion(&mut self, run_when_complete: bool) {
+        let suggestions = self.suggestions();
+        let Some(suggestion) = suggestions
+            .get(
+                self.command_suggestion_selected
+                    .min(suggestions.len().saturating_sub(1)),
+            )
+            .copied()
+        else {
+            return;
+        };
+        self.command = suggestion.completion.into();
+        self.command_suggestion_selected = 0;
+        if run_when_complete && !suggestion.completion.ends_with(' ') {
+            self.run_command();
+        }
+    }
+
+    fn run_command(&mut self) {
+        let input = std::mem::take(&mut self.command);
+        self.command_suggestion_selected = 0;
+        if !input.trim().is_empty() {
+            match input.parse::<KillSilenceCommand>() {
+                Ok(command) => self.dispatch(command),
+                Err(error) => self.status = error.to_string(),
+            }
         }
     }
 
@@ -221,6 +292,14 @@ impl Runtime {
             ),
             KillSilenceCommand::Like => self.like_current(),
             KillSilenceCommand::WithAgents => self.load_agents(),
+            KillSilenceCommand::Home => {
+                self.screen = KillSilenceScreen::Home;
+                self.status = "TITLE SCREEN · SPOTIFY SIGNAL CONTINUES".into();
+            }
+            KillSilenceCommand::Player => {
+                self.screen = KillSilenceScreen::Player;
+                self.status = "NOW PLAYING SCREEN".into();
+            }
             KillSilenceCommand::Help => self.open_help(),
             KillSilenceCommand::Quit => self.should_quit = true,
         }
@@ -262,6 +341,8 @@ impl Runtime {
             "/search <query> · find Spotify tracks",
             "/spotify device · choose a Connect device",
             "/with-agents · bind an external Claude session",
+            "/home · title screen (music keeps playing)",
+            "/player · return to the current track",
             "/play /stop /replay /next /prev",
             "/volume 1..10 · set Spotify device volume",
             "/queue /like /quit",
@@ -313,6 +394,7 @@ impl Runtime {
                     None,
                 )));
                 self.status = "SPOTIFY TRANSMISSION STARTED".into();
+                self.screen = KillSilenceScreen::Player;
             }
             ListEntry::Playlist(playlist) => {
                 self.send(ClientRequest::Player(PlayerRequest::StartPlayback(
@@ -320,6 +402,7 @@ impl Runtime {
                     None,
                 )));
                 self.status = "PLAYLIST TRANSMISSION STARTED".into();
+                self.screen = KillSilenceScreen::Player;
             }
             ListEntry::Device(device) => {
                 self.send(ClientRequest::Player(PlayerRequest::TransferPlayback(
@@ -379,10 +462,12 @@ impl Runtime {
                         self.agent_watch = Some(watch);
                         self.agent_session = Some(session);
                         self.agent_status = KillSilenceAgentStatus::Armed;
+                        self.agent_completed = None;
                         self.status = "EXTERNAL CLAUDE LINK ARMED".into();
                     }
                     Err(error) => {
                         self.agent_status = KillSilenceAgentStatus::Error;
+                        self.agent_completed = None;
                         self.status = short_error(&error);
                     }
                 },
@@ -411,11 +496,13 @@ impl Runtime {
             match event {
                 AgentEvent::Watching { .. } => {
                     self.agent_status = KillSilenceAgentStatus::Armed;
+                    self.agent_completed = None;
                     self.status = "WATCHING EXTERNAL CLAUDE TERMINAL".into();
                 }
                 AgentEvent::TurnStarted { .. } => {
                     self.agent_status = KillSilenceAgentStatus::Working;
                     self.agent_started = Some(Instant::now());
+                    self.agent_completed = None;
                     self.player(
                         PlayerRequest::Resume,
                         "EXTERNAL CLAUDE · WORKING · SOUNDTRACK ACTIVE",
@@ -423,6 +510,7 @@ impl Runtime {
                 }
                 AgentEvent::TurnCompleted { .. } => {
                     self.agent_status = KillSilenceAgentStatus::Complete;
+                    self.agent_completed = Some(Instant::now());
                     self.player(
                         PlayerRequest::Pause,
                         "EXTERNAL CLAUDE TURN COMPLETE · SOUNDTRACK HELD",
@@ -430,10 +518,12 @@ impl Runtime {
                 }
                 AgentEvent::Interrupted { .. } => {
                     self.agent_status = KillSilenceAgentStatus::Interrupted;
+                    self.agent_completed = None;
                     self.player(PlayerRequest::Pause, "EXTERNAL CLAUDE TURN INTERRUPTED");
                 }
                 AgentEvent::Error { message, .. } => {
                     self.agent_status = KillSilenceAgentStatus::Error;
+                    self.agent_completed = None;
                     self.status = short_error(&message);
                 }
             }
@@ -562,6 +652,7 @@ impl Runtime {
             || (String::new(), String::new()),
             |session| (session.project.clone(), session.title.clone()),
         );
+        let suggestions = self.suggestions();
         KillSilenceViewModel {
             account_label: account.clone().unwrap_or_else(|| "SPOTIFY LINKED".into()),
             authenticated: account.is_some(),
@@ -572,6 +663,16 @@ impl Runtime {
             volume_percent: volume,
             device_name: device,
             command_line: self.command.clone(),
+            command_suggestions: suggestions
+                .iter()
+                .map(|suggestion| KillSilenceCommandSuggestion {
+                    usage: suggestion.usage.into(),
+                    description: suggestion.description.into(),
+                })
+                .collect(),
+            command_suggestion_selected: self
+                .command_suggestion_selected
+                .min(suggestions.len().saturating_sub(1)),
             agent: KillSilenceAgent {
                 status: self.agent_status,
                 project,
@@ -579,6 +680,9 @@ impl Runtime {
                 elapsed_seconds: self
                     .agent_started
                     .map_or(0, |started| started.elapsed().as_secs()),
+                completion_elapsed_ms: self
+                    .agent_completed
+                    .map(|completed| completed.elapsed().as_millis() as u64),
             },
             overlay,
             frame_tick: self.tick,
@@ -640,7 +744,12 @@ pub(crate) fn run_kill_silence(
         runtime.tick();
         if last_draw.elapsed() >= FRAME_INTERVAL {
             let model = runtime.view_model();
-            terminal.draw(|frame| render_kill_silence(frame, &model, runtime.artwork.as_ref()))?;
+            terminal.draw(|frame| match runtime.screen {
+                KillSilenceScreen::Home => render_kill_silence_home(frame, &model),
+                KillSilenceScreen::Player => {
+                    render_kill_silence(frame, &model, runtime.artwork.as_ref());
+                }
+            })?;
             last_draw = Instant::now();
         }
     }

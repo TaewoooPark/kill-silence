@@ -14,8 +14,113 @@ pub enum KillSilenceCommand {
     Volume(u8),
     Like,
     WithAgents,
+    Home,
+    Player,
     Help,
     Quit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KillSilenceCommandSpec {
+    pub completion: &'static str,
+    pub usage: &'static str,
+    pub description: &'static str,
+}
+
+pub const KILL_SILENCE_COMMANDS: &[KillSilenceCommandSpec] = &[
+    KillSilenceCommandSpec {
+        completion: "/song",
+        usage: "/song",
+        description: "saved tracks and playlists",
+    },
+    KillSilenceCommandSpec {
+        completion: "/search ",
+        usage: "/search <query>",
+        description: "search Spotify",
+    },
+    KillSilenceCommandSpec {
+        completion: "/spotify device",
+        usage: "/spotify device",
+        description: "choose a Connect device",
+    },
+    KillSilenceCommandSpec {
+        completion: "/queue",
+        usage: "/queue",
+        description: "open the Spotify queue",
+    },
+    KillSilenceCommandSpec {
+        completion: "/play",
+        usage: "/play",
+        description: "resume playback",
+    },
+    KillSilenceCommandSpec {
+        completion: "/stop",
+        usage: "/stop",
+        description: "pause playback",
+    },
+    KillSilenceCommandSpec {
+        completion: "/replay",
+        usage: "/replay",
+        description: "restart the current track",
+    },
+    KillSilenceCommandSpec {
+        completion: "/next",
+        usage: "/next",
+        description: "skip to the next track",
+    },
+    KillSilenceCommandSpec {
+        completion: "/prev",
+        usage: "/prev",
+        description: "return to the previous track",
+    },
+    KillSilenceCommandSpec {
+        completion: "/volume ",
+        usage: "/volume <1..10>",
+        description: "set Spotify volume",
+    },
+    KillSilenceCommandSpec {
+        completion: "/like",
+        usage: "/like",
+        description: "save the current track",
+    },
+    KillSilenceCommandSpec {
+        completion: "/with-agents",
+        usage: "/with-agents",
+        description: "watch an external Claude session",
+    },
+    KillSilenceCommandSpec {
+        completion: "/home",
+        usage: "/home",
+        description: "show the KILL//SILENCE title",
+    },
+    KillSilenceCommandSpec {
+        completion: "/player",
+        usage: "/player",
+        description: "show the playing track",
+    },
+    KillSilenceCommandSpec {
+        completion: "/help",
+        usage: "/help",
+        description: "open the command archive",
+    },
+    KillSilenceCommandSpec {
+        completion: "/quit",
+        usage: "/quit",
+        description: "close KILL//SILENCE",
+    },
+];
+
+#[must_use]
+pub fn command_suggestions(input: &str) -> Vec<KillSilenceCommandSpec> {
+    let query = input.trim_start().to_ascii_lowercase();
+    if !query.starts_with('/') {
+        return Vec::new();
+    }
+    KILL_SILENCE_COMMANDS
+        .iter()
+        .copied()
+        .filter(|spec| spec.completion.starts_with(&query) || spec.usage.starts_with(&query))
+        .collect()
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -85,6 +190,8 @@ impl FromStr for KillSilenceCommand {
                 .ok_or(KillSilenceCommandError::InvalidVolume),
             "like" | "save" => Ok(Self::Like),
             "with-agents" | "agents" => Ok(Self::WithAgents),
+            "home" | "main" | "title" => Ok(Self::Home),
+            "player" | "now" | "now-playing" => Ok(Self::Player),
             "help" | "?" => Ok(Self::Help),
             "quit" | "exit" => Ok(Self::Quit),
             _ => Err(KillSilenceCommandError::Unknown(name)),
@@ -129,5 +236,25 @@ mod tests {
             "/spotify login anything".parse::<KillSilenceCommand>(),
             Err(KillSilenceCommandError::InvalidSpotifyCommand)
         );
+    }
+
+    #[test]
+    fn suggestions_are_indexed_and_complete_ambiguous_prefixes() {
+        let suggestions = command_suggestions("/pla");
+        assert_eq!(
+            suggestions
+                .iter()
+                .map(|item| item.completion)
+                .collect::<Vec<_>>(),
+            vec!["/play", "/player"]
+        );
+        assert!(command_suggestions("hello").is_empty());
+    }
+
+    #[test]
+    fn parses_non_interrupting_screen_commands() {
+        assert_eq!("/home".parse(), Ok(KillSilenceCommand::Home));
+        assert_eq!("/player".parse(), Ok(KillSilenceCommand::Player));
+        assert_eq!("/now-playing".parse(), Ok(KillSilenceCommand::Player));
     }
 }

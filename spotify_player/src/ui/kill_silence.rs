@@ -16,6 +16,23 @@ use ratatui::{
 
 const WIDE_LAYOUT_AT: u16 = 120;
 const SIGNAL_MAX: u16 = 8;
+const AGENT_BLINK_HALF_PERIOD_MS: u64 = 300;
+const AGENT_BLINK_COUNT: u64 = 10;
+
+const WIDE_LOGO: &[&str] = &[
+    "██╗  ██╗  ██╗  ██╗      ██╗          ███████╗  ██╗  ██╗      ███████╗  ███╗   ██╗  ██████╗  ███████╗",
+    "██║ ██╔╝  ██║  ██║      ██║          ██╔════╝  ██║  ██║      ██╔════╝  ████╗  ██║  ██╔════╝  ██╔════╝",
+    "█████╔╝   ██║  ██║      ██║   //     ███████╗  ██║  ██║      █████╗    ██╔██╗ ██║  ██║       █████╗",
+    "██╔═██╗   ██║  ██║      ██║          ╚════██║  ██║  ██║      ██╔══╝    ██║╚██╗██║  ██║       ██╔══╝",
+    "██║  ██╗  ██║  ███████╗ ███████╗     ███████║  ██║  ███████╗ ███████╗ ██║ ╚████║  ╚██████╗  ███████╗",
+    "╚═╝  ╚═╝  ╚═╝  ╚══════╝ ╚══════╝     ╚══════╝  ╚═╝  ╚══════╝ ╚══════╝ ╚═╝  ╚═══╝   ╚═════╝  ╚══════╝",
+];
+
+const COMPACT_LOGO: &[&str] = &[
+    "█ █  ███  █    █       ╱╱      ███  █  █    ███  █  █  ███  ███",
+    "██    █   █    █      ╱╱       █    █  █    █    ██ █  █    █",
+    "█ █  ███  ███  ███   ╱╱       ███  █  ███  ███  █ ██  ███  ███",
+];
 
 // Chrome always uses xterm-256 colours. This prevents Terminal.app from turning
 // an unsupported RGB background into a white canvas.
@@ -202,6 +219,14 @@ pub struct KillSilenceAgent {
     pub project: String,
     pub session_title: String,
     pub elapsed_seconds: u64,
+    /// Time since completion. `None` means the completion banner is already solid.
+    pub completion_elapsed_ms: Option<u64>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct KillSilenceCommandSuggestion {
+    pub usage: String,
+    pub description: String,
 }
 
 /// A modal list supplied by the integration layer.
@@ -225,6 +250,8 @@ pub struct KillSilenceViewModel {
     pub volume_percent: u8,
     pub device_name: String,
     pub command_line: String,
+    pub command_suggestions: Vec<KillSilenceCommandSuggestion>,
+    pub command_suggestion_selected: usize,
     pub agent: KillSilenceAgent,
     pub overlay: Option<KillSilenceOverlay>,
     pub frame_tick: u64,
@@ -243,11 +270,36 @@ impl Default for KillSilenceViewModel {
             volume_percent: 70,
             device_name: "NO ACTIVE DEVICE".into(),
             command_line: String::new(),
+            command_suggestions: Vec::new(),
+            command_suggestion_selected: 0,
             agent: KillSilenceAgent::default(),
             overlay: None,
             frame_tick: 0,
             artwork_color_mode: ArtworkColorMode::Auto,
         }
+    }
+}
+
+/// Render the persistent title screen without affecting playback state.
+pub fn render_kill_silence_home(frame: &mut Frame<'_>, model: &KillSilenceViewModel) {
+    let area = frame.area();
+    frame.render_widget(Block::default().style(Style::new().fg(TEXT).bg(VOID)), area);
+    if area.width >= WIDE_LAYOUT_AT {
+        let columns = Layout::horizontal([Constraint::Percentage(72), Constraint::Percentage(28)])
+            .spacing(1)
+            .split(area);
+        render_home_panel(frame, columns[0], model);
+        render_agent(frame, columns[1], model);
+    } else {
+        let agent_height = if area.height >= 24 { 7 } else { 6 };
+        let rows = Layout::vertical([Constraint::Min(12), Constraint::Length(agent_height)])
+            .spacing(1)
+            .split(area);
+        render_home_panel(frame, rows[0], model);
+        render_agent(frame, rows[1], model);
+    }
+    if let Some(overlay) = &model.overlay {
+        render_overlay(frame, overlay);
     }
 }
 
@@ -306,18 +358,11 @@ pub fn render_kill_silence_boot(frame: &mut Frame<'_>, tick: u64) {
         .style(panel_style()),
         rows[0],
     );
-    let logo = [
-        "██╗  ██╗  ██╗  ██╗      ██╗          ███████╗  ██╗  ██╗      ███████╗  ███╗   ██╗  ██████╗  ███████╗",
-        "██║ ██╔╝  ██║  ██║      ██║          ██╔════╝  ██║  ██║      ██╔════╝  ████╗  ██║  ██╔════╝  ██╔════╝",
-        "█████╔╝   ██║  ██║      ██║   //     ███████╗  ██║  ██║      █████╗    ██╔██╗ ██║  ██║       █████╗",
-        "██╔═██╗   ██║  ██║      ██║          ╚════██║  ██║  ██║      ██╔══╝    ██║╚██╗██║  ██║       ██╔══╝",
-        "██║  ██╗  ██║  ███████╗ ███████╗     ███████║  ██║  ███████╗ ███████╗ ██║ ╚████║  ╚██████╗  ███████╗",
-        "╚═╝  ╚═╝  ╚═╝  ╚══════╝ ╚══════╝     ╚══════╝  ╚═╝  ╚══════╝ ╚══════╝ ╚═╝  ╚═══╝   ╚═════╝  ╚══════╝",
-    ];
     frame.render_widget(
         Paragraph::new(
-            logo.into_iter()
-                .map(|line| Line::styled(line, title_style()))
+            WIDE_LOGO
+                .iter()
+                .map(|line| Line::styled(*line, title_style()))
                 .collect::<Vec<_>>(),
         )
         .alignment(Alignment::Center)
@@ -350,6 +395,65 @@ pub fn render_kill_silence_boot(frame: &mut Frame<'_>, tick: u64) {
     );
 }
 
+fn render_home_panel(frame: &mut Frame<'_>, area: Rect, model: &KillSilenceViewModel) {
+    if area.width < 4 || area.height < 4 {
+        return;
+    }
+    let block = Block::bordered()
+        .border_style(Style::new().fg(CYAN))
+        .style(panel_style());
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let compact = inner.height < 22 || inner.width < 112;
+    let visible = if compact { 2 } else { 5 }.min(model.command_suggestions.len());
+    let command_height = 1 + visible as u16;
+    let logo_height = if compact { 3 } else { 6 };
+    let rows = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Min(logo_height),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(command_height),
+    ])
+    .split(inner);
+    render_header(frame, rows[0], model);
+    let logo = if inner.width < 112 {
+        COMPACT_LOGO
+    } else {
+        WIDE_LOGO
+    };
+    frame.render_widget(
+        Paragraph::new(
+            logo.iter()
+                .map(|line| Line::styled(*line, title_style()))
+                .collect::<Vec<_>>(),
+        )
+        .alignment(Alignment::Center)
+        .style(panel_style()),
+        rows[1],
+    );
+    let pulse = if model.frame_tick % 8 < 4 {
+        "● SIGNAL"
+    } else {
+        "○ SIGNAL"
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(pulse, title_style()),
+            Span::styled(
+                "     TRANSMISSION BEGINS WHERE SILENCE ENDS     ",
+                accent_style(),
+            ),
+            Span::styled("FREQ://∞", muted_style()),
+        ]))
+        .alignment(Alignment::Center)
+        .style(panel_style()),
+        rows[2],
+    );
+    render_status(frame, rows[3], model);
+    render_command(frame, rows[4], model, visible);
+}
+
 fn render_player(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -365,13 +469,15 @@ fn render_player(
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let compact = inner.height < 20;
+    let visible = if compact { 2 } else { 5 }.min(model.command_suggestions.len());
+    let command_height = 1 + visible as u16;
     let rows = Layout::vertical([
         Constraint::Length(2),
         Constraint::Length(if compact { 5 } else { 8 }),
         Constraint::Min(if compact { 4 } else { 7 }),
         Constraint::Length(1),
         Constraint::Length(1),
-        Constraint::Length(1),
+        Constraint::Length(command_height),
     ])
     .split(inner);
     render_header(frame, rows[0], model);
@@ -379,7 +485,7 @@ fn render_player(
     render_signal(frame, rows[2], model);
     render_progress(frame, rows[3], model);
     render_status(frame, rows[4], model);
-    render_command(frame, rows[5], model);
+    render_command(frame, rows[5], model, visible);
 }
 
 fn render_header(frame: &mut Frame<'_>, area: Rect, model: &KillSilenceViewModel) {
@@ -507,7 +613,7 @@ fn render_signal(frame: &mut Frame<'_>, area: Rect, model: &KillSilenceViewModel
         return;
     }
     frame.render_widget(
-        Paragraph::new(" LIVE SIGNAL PRESET // STATIC ARRAY")
+        Paragraph::new(" LIVE SIGNAL WAVEFORM // PRESET STREAM")
             .style(panel_style().fg(MAGENTA).add_modifier(Modifier::BOLD)),
         Rect { height: 1, ..area },
     );
@@ -516,7 +622,7 @@ fn render_signal(frame: &mut Frame<'_>, area: Rect, model: &KillSilenceViewModel
         height: area.height.saturating_sub(1),
         ..area
     };
-    let heights = signal_heights(graph.width);
+    let heights = signal_heights_at(graph.width, (model.progress_ms / 120) as usize);
     let split = (playback_ratio(model) * f64::from(graph.width)).round() as usize;
     let mut lines = Vec::with_capacity(usize::from(graph.height));
     for row in 0..graph.height {
@@ -580,21 +686,68 @@ fn render_status(frame: &mut Frame<'_>, area: Rect, model: &KillSilenceViewModel
     );
 }
 
-fn render_command(frame: &mut Frame<'_>, area: Rect, model: &KillSilenceViewModel) {
+fn render_command(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    model: &KillSilenceViewModel,
+    visible_suggestions: usize,
+) {
     let command = if model.command_line.is_empty() {
         Cow::Borrowed("type /help")
     } else {
         Cow::Borrowed(model.command_line.as_str())
     };
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(" ks:// ", accent_style()),
-            Span::styled("█ ", Style::new().fg(CYAN)),
-            Span::styled(command, muted_style()),
-        ]))
-        .style(panel_style()),
-        area,
+    let mut command_spans = vec![
+        Span::styled(" ks:// ", accent_style()),
+        Span::styled("█ ", Style::new().fg(CYAN)),
+        Span::styled(command, muted_style()),
+    ];
+    if visible_suggestions > 0 {
+        command_spans.push(Span::styled("   ↑↓ INDEX · TAB COMPLETE", muted_style()));
+    }
+    let mut lines = vec![Line::from(command_spans)];
+    let selected = model
+        .command_suggestion_selected
+        .min(model.command_suggestions.len().saturating_sub(1));
+    let suggestion_start = if visible_suggestions > 0 && selected >= visible_suggestions {
+        selected + 1 - visible_suggestions
+    } else {
+        0
+    };
+    lines.extend(
+        model
+            .command_suggestions
+            .iter()
+            .enumerate()
+            .skip(suggestion_start)
+            .take(visible_suggestions)
+            .map(|(index, suggestion)| {
+                let selected = index == model.command_suggestion_selected;
+                Line::from(vec![
+                    Span::styled(
+                        if selected { "   ▸ " } else { "     " },
+                        if selected {
+                            accent_style()
+                        } else {
+                            muted_style()
+                        },
+                    ),
+                    Span::styled(
+                        format!("{:<22}", suggestion.usage),
+                        if selected {
+                            Style::new()
+                                .fg(VOID)
+                                .bg(MAGENTA)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::new().fg(CYAN).bg(PANEL)
+                        },
+                    ),
+                    Span::styled(format!("  {}", suggestion.description), muted_style()),
+                ])
+            }),
     );
+    frame.render_widget(Paragraph::new(lines).style(panel_style()), area);
 }
 
 fn render_agent(frame: &mut Frame<'_>, area: Rect, model: &KillSilenceViewModel) {
@@ -653,11 +806,15 @@ fn render_agent(frame: &mut Frame<'_>, area: Rect, model: &KillSilenceViewModel)
         ]),
         Line::styled(session_title, muted_style()),
     ];
-    if model.agent.status == KillSilenceAgentStatus::Complete && model.frame_tick % 10 < 7 {
+    let completion_visible = model.agent.status == KillSilenceAgentStatus::Complete
+        && completion_banner_visible(model.agent.completion_elapsed_ms);
+    if completion_visible {
         lines.push(Line::styled(
             " THE AGENT'S WORK IS COMPLETE!! ",
             Style::new().fg(VOID).bg(GREEN).add_modifier(Modifier::BOLD),
         ));
+    } else if model.agent.status == KillSilenceAgentStatus::Complete {
+        lines.push(Line::raw(""));
     } else if active {
         lines.push(Line::styled(
             " WATCHING THE EXTERNAL TERMINAL",
@@ -722,16 +879,29 @@ fn render_overlay(frame: &mut Frame<'_>, overlay: &KillSilenceOverlay) {
 
 #[must_use]
 pub fn signal_heights(width: u16) -> Vec<u8> {
+    signal_heights_at(width, 0)
+}
+
+#[must_use]
+pub fn signal_heights_at(width: u16, phase: usize) -> Vec<u8> {
     let width = usize::from(width);
     if width == 0 {
         return Vec::new();
     }
     (0..width)
         .map(|column| {
-            let source = column * SIGNAL_PRESET.len() / width;
+            let source = (column * SIGNAL_PRESET.len() / width + phase) % SIGNAL_PRESET.len();
             SIGNAL_PRESET[source.min(SIGNAL_PRESET.len() - 1)]
         })
         .collect()
+}
+
+fn completion_banner_visible(elapsed_ms: Option<u64>) -> bool {
+    let Some(elapsed_ms) = elapsed_ms else {
+        return true;
+    };
+    let blinking_for = AGENT_BLINK_HALF_PERIOD_MS * 2 * AGENT_BLINK_COUNT;
+    elapsed_ms >= blinking_for || (elapsed_ms / AGENT_BLINK_HALF_PERIOD_MS).is_multiple_of(2)
 }
 
 fn playback_ratio(model: &KillSilenceViewModel) -> f64 {
@@ -840,8 +1010,10 @@ mod tests {
     use ratatui::{backend::TestBackend, buffer::Buffer, style::Color, Terminal};
 
     use super::{
-        render_kill_silence, render_kill_silence_boot, terminal_color, ArtworkColorMode,
-        KillSilenceAgentStatus, KillSilenceOverlay, KillSilenceTrack, KillSilenceViewModel,
+        completion_banner_visible, render_kill_silence, render_kill_silence_boot,
+        render_kill_silence_home, signal_heights_at, terminal_color, ArtworkColorMode,
+        KillSilenceAgentStatus, KillSilenceCommandSuggestion, KillSilenceOverlay, KillSilenceTrack,
+        KillSilenceViewModel,
     };
 
     fn playing_model() -> KillSilenceViewModel {
@@ -898,7 +1070,7 @@ mod tests {
         let view = screen(terminal.backend().buffer());
         assert!(view.contains("KILL//SILENCE"));
         assert!(view.contains("LAST NIGHT ON EARTH"));
-        assert!(view.contains("LIVE SIGNAL PRESET"));
+        assert!(view.contains("LIVE SIGNAL WAVEFORM"));
         assert!(view.contains("WITH-AGENTS//STANDBY"));
         assert!(view.contains("ks://"));
         assert!(
@@ -984,5 +1156,40 @@ mod tests {
         ] {
             assert!(!super::agent_status(status).is_empty());
         }
+    }
+
+    #[test]
+    fn home_screen_keeps_commands_and_agent_panel_visible() {
+        let mut model = playing_model();
+        model.command_line = "/pla".into();
+        model.command_suggestions = vec![
+            KillSilenceCommandSuggestion {
+                usage: "/play".into(),
+                description: "resume playback".into(),
+            },
+            KillSilenceCommandSuggestion {
+                usage: "/player".into(),
+                description: "show the playing track".into(),
+            },
+        ];
+        let backend = TestBackend::new(100, 28);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_kill_silence_home(frame, &model))
+            .unwrap();
+        let view = screen(terminal.backend().buffer());
+        assert!(view.contains("KILL//SILENCE"));
+        assert!(view.contains("/play"));
+        assert!(view.contains("/player"));
+        assert!(view.contains("WITH-AGENTS//STANDBY"));
+    }
+
+    #[test]
+    fn preset_waveform_scrolls_and_completion_becomes_solid_after_ten_blinks() {
+        assert_ne!(signal_heights_at(40, 0), signal_heights_at(40, 3));
+        assert!(completion_banner_visible(Some(0)));
+        assert!(!completion_banner_visible(Some(300)));
+        assert!(completion_banner_visible(Some(6_000)));
+        assert!(completion_banner_visible(Some(60_000)));
     }
 }

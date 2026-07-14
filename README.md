@@ -19,7 +19,7 @@
 
 KILL//SILENCE is a cyan-and-magenta Spotify control surface for the quiet gaps between coding-agent turns. It keeps the playful terminal from the original local demo—colour album art, a dense vertical signal preset, slash commands, responsive agent panels—and replaces the local-file player with Spotify's library, search, queue, and Connect playback.
 
-Its small trick is `/with-agents`: choose a real external Claude Code session, then keep working in that terminal as usual. When a turn starts, the soundtrack resumes. When Claude finishes, Spotify pauses and **THE AGENT'S WORK IS COMPLETE!!** blinks in the panel.
+Its small trick is `/with-agents`: choose a real external Claude Code session, then keep working in that terminal as usual. When a turn starts, the soundtrack resumes. When Claude finishes, Spotify pauses and **THE AGENT'S WORK IS COMPLETE!!** blinks ten times, then stays lit in the panel.
 
 No embedded prompt box. No copied responses. No new AI workspace. Just a cheerful audio sidecar for the terminal you already use.
 
@@ -30,7 +30,9 @@ No embedded prompt box. No copied responses. No new AI workspace. Just a cheerfu
 ## What survived the rebuild
 
 - Full-colour half-block album cover art with an ANSI-256 fallback for Terminal.app
-- A fixed, dense vertical waveform preset—decorative on purpose, not fake analysis
+- A fixed, dense vertical waveform preset that scrolls with playback—decorative on purpose, not fake analysis
+- Indexed slash-command suggestions with arrow-key selection and Tab completion
+- `/home` and `/player` switch views without touching the active Spotify playback
 - `/song`, Spotify search, queue, like, playback, volume, and Connect-device commands
 - `/with-agents` read-only Claude Code session discovery and lifecycle tracking
 - Wide terminals place the agent panel on the right; narrow terminals place it below
@@ -76,10 +78,12 @@ KILL//SILENCE controls Spotify Desktop or another Connect player rather than cre
 | `/replay` | Seek to the beginning and play |
 | `/next` / `/prev` | Change track |
 | `/volume 1..10` | Set the active device volume |
+| `/home` | Return to the KILL//SILENCE title without stopping music |
+| `/player` | Return to the album-art, waveform, and progress view |
 | `/help` | Open the command archive |
 | `/quit` | Restore the terminal and exit |
 
-Lists use `↑` / `↓` or `j` / `k`, `Enter`, and `Esc`. `Ctrl-C` also exits.
+Start typing `/` to open the indexed command list. Use `↑` / `↓` to choose a suggestion, `Tab` or `→` to complete it, and `Enter` to run it. Modal lists additionally support `j` / `k`; `Esc` closes or clears, and `Ctrl-C` exits.
 
 ## Five little states
 
@@ -102,7 +106,7 @@ The screenshots preserve the original local prototype's visual language. This fo
 1. KILL//SILENCE indexes resumable JSONL sessions below `~/.claude/projects`.
 2. Selecting one starts a read-only watcher at the file's current end, so old turns do nothing.
 3. A new real Claude Code turn resumes Spotify playback.
-4. Claude's completion or interruption record pauses playback and raises the blinking signal.
+4. Claude's completion or interruption record pauses playback. Completion blinks the signal ten times and then leaves it steadily visible.
 
 Prompt and response bodies are never rendered by KILL//SILENCE. The watcher emits lifecycle metadata only and never writes to Claude's files.
 
